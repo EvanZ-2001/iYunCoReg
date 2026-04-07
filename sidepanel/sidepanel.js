@@ -107,6 +107,9 @@ const I18N = {
     btnPaste: '粘贴',
     btnRefresh: '刷新',
     btnDeleteUsed: '删除已用',
+    btnDelete: '删除',
+    btnMarkUsed: '标记已用',
+    btnMarkUnused: '标记未用',
     btnIcloudLoginDone: '我已登录',
     btnClear: '清空',
     btnSkip: '跳过',
@@ -143,6 +146,9 @@ const I18N = {
     deletingAlias: ({ email }) => `正在删除 ${email}...`,
     deletedAlias: ({ email }) => `已删除 ${email}`,
     deleteFailed: ({ message }) => `删除失败：${message}`,
+    updatingAliasUsed: ({ email, used }) => `正在将 ${email} 标记为${used ? '已用' : '未用'}...`,
+    updatedAliasUsed: ({ email, used }) => `${email} 已标记为${used ? '已用' : '未用'}`,
+    updateAliasUsedFailed: ({ message }) => `标记失败：${message}`,
     deletingUsedAliases: '正在删除已使用的 iCloud 别名...',
     deletedUsedAliases: ({ deleted, skipped }) => skipped ? `已删除 ${deleted} 个已用别名，跳过 ${skipped} 个。` : `已删除 ${deleted} 个已用别名。`,
     bulkDeleteFailed: ({ message }) => `批量删除失败：${message}`,
@@ -208,6 +214,9 @@ const I18N = {
     btnPaste: 'Paste',
     btnRefresh: 'Refresh',
     btnDeleteUsed: 'Delete Used',
+    btnDelete: 'Delete',
+    btnMarkUsed: 'Mark Used',
+    btnMarkUnused: 'Mark Unused',
     btnIcloudLoginDone: "I've Signed In",
     btnClear: 'Clear',
     btnSkip: 'Skip',
@@ -244,6 +253,9 @@ const I18N = {
     deletingAlias: ({ email }) => `Deleting ${email}...`,
     deletedAlias: ({ email }) => `Deleted ${email}`,
     deleteFailed: ({ message }) => `Delete failed: ${message}`,
+    updatingAliasUsed: ({ email, used }) => `Marking ${email} as ${used ? 'used' : 'unused'}...`,
+    updatedAliasUsed: ({ email, used }) => `${email} marked as ${used ? 'used' : 'unused'}`,
+    updateAliasUsedFailed: ({ message }) => `Failed to update used state: ${message}`,
     deletingUsedAliases: 'Deleting used iCloud aliases...',
     deletedUsedAliases: ({ deleted, skipped }) => skipped ? `Deleted ${deleted} used aliases, ${skipped} skipped.` : `Deleted ${deleted} used aliases.`,
     bulkDeleteFailed: ({ message }) => `Bulk delete failed: ${message}`,
@@ -719,15 +731,21 @@ function renderIcloudAliases(aliases = []) {
         <div class="icloud-item-email">${escapeHtml(alias.email)}</div>
         <div class="icloud-item-meta">
           ${alias.used ? `<span class="icloud-tag used">${escapeHtml(currentLanguage === 'zh-CN' ? '已用' : 'Used')}</span>` : ''}
-          ${alias.active ? `<span class="icloud-tag active">${escapeHtml(currentLanguage === 'zh-CN' ? '可用' : 'Active')}</span>` : ''}
+          ${!alias.used && alias.active ? `<span class="icloud-tag active">${escapeHtml(currentLanguage === 'zh-CN' ? '可用' : 'Active')}</span>` : ''}
           ${alias.label ? `<span class="icloud-tag">${escapeHtml(alias.label)}</span>` : ''}
           ${alias.note ? `<span class="icloud-tag">${escapeHtml(alias.note)}</span>` : ''}
         </div>
       </div>
-      <button class="btn btn-outline btn-xs" type="button">${escapeHtml(currentLanguage === 'zh-CN' ? '删除' : 'Delete')}</button>
+      <div class="icloud-item-actions">
+        <button class="btn btn-outline btn-xs" type="button" data-action="toggle-used">${escapeHtml(alias.used ? t('btnMarkUnused') : t('btnMarkUsed'))}</button>
+        <button class="btn btn-outline btn-xs" type="button" data-action="delete">${escapeHtml(t('btnDelete'))}</button>
+      </div>
     `;
 
-    item.querySelector('button').addEventListener('click', async () => {
+    item.querySelector('[data-action="toggle-used"]').addEventListener('click', async () => {
+      await setSingleIcloudAliasUsedState(alias, !alias.used);
+    });
+    item.querySelector('[data-action="delete"]').addEventListener('click', async () => {
       await deleteSingleIcloudAlias(alias);
     });
     icloudList.appendChild(item);
@@ -779,6 +797,25 @@ async function deleteSingleIcloudAlias(alias) {
     await refreshIcloudAliases({ silent: true });
   } catch (err) {
     showToast(t('deleteFailed', { message: err.message }), 'error');
+    icloudSummary.textContent = err.message;
+  } finally {
+    btnIcloudRefresh.disabled = false;
+  }
+}
+
+async function setSingleIcloudAliasUsedState(alias, used) {
+  setIcloudLoadingState(true, t('updatingAliasUsed', { email: alias.email, used }));
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: 'SET_ICLOUD_ALIAS_USED_STATE',
+      source: 'sidepanel',
+      payload: { email: alias.email, used },
+    });
+    if (response?.error) throw new Error(response.error);
+    showToast(t('updatedAliasUsed', { email: alias.email, used }), 'success', 2500);
+    await refreshIcloudAliases({ silent: true });
+  } catch (err) {
+    showToast(t('updateAliasUsedFailed', { message: err.message }), 'error');
     icloudSummary.textContent = err.message;
   } finally {
     btnIcloudRefresh.disabled = false;

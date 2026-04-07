@@ -248,4 +248,3 @@ This project is licensed under the MIT License.
 
 It includes code derived from:
 - [StepFlow-Duck](https://github.com/whwh1233/StepFlow-Duck)
-- Copyright (c) 2026 Jimmy

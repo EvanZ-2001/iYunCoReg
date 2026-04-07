@@ -308,6 +308,9 @@ async function resendVerificationCode(step, payload = {}) {
 
 async function findVerificationContinueButton(timeout = 10000) {
   const selector = [
+    'button[type="submit"][name="intent"][value="resend"]',
+    'button[name="intent"][value="resend"]',
+    'button[type="submit"][value="resend"]',
     'button[type="submit"][name="intent"][value="validate"]',
     'button[type="submit"][data-dd-action-name="Continue"]',
     'button[type="submit"]._primary_3rdp0_107',
@@ -317,9 +320,9 @@ async function findVerificationContinueButton(timeout = 10000) {
     return await waitForElement(selector, timeout);
   } catch {
     try {
-      return await waitForElementByText('button', /继续|Continue/, Math.max(3000, timeout / 2));
+      return await waitForElementByText('button', /重新发送电子邮件|重新发送|resend email|resend/i, Math.max(3000, timeout / 2));
     } catch {
-      throw new Error('Could not find the resend / continue button on the verification page. URL: ' + location.href);
+      throw new Error('Could not find the resend button on the verification page. URL: ' + location.href);
     }
   }
 }

@@ -477,7 +477,7 @@ header {
 
 .icloud-item {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   padding: 8px 10px;
   border: 1px solid var(--border-subtle);
@@ -488,6 +488,13 @@ header {
 .icloud-item-main {
   flex: 1;
   min-width: 0;
+}
+
+.icloud-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
 }
 
 .icloud-item-email {

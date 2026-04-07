@@ -37,6 +37,7 @@ const DEFAULT_STATE = {
   email: null,
   password: null,
   accounts: [], // Successfully completed accounts: { email, password, createdAt }
+  manualAliasUsage: {},
   lastEmailTimestamp: null,
   localhostUrl: null,
   flowStartTime: null,
@@ -120,7 +121,13 @@ async function recordCompletedAccount() {
     accounts.push(record);
   }
 
-  await setState({ accounts });
+  const manualAliasUsage = {
+    ...getManualAliasUsageMap(state),
+    [email]: true,
+  };
+
+  await setState({ accounts, manualAliasUsage });
+  broadcastIcloudAliasesChanged({ reason: 'used-updated', email, used: true });
 }
 
 async function maybeAutoDeleteCompletedIcloudAlias() {
@@ -155,6 +162,41 @@ async function setManualEmailState(email) {
   const trimmedEmail = String(email || '').trim();
   await setState({ email: trimmedEmail });
   broadcastDataUpdate({ email: trimmedEmail });
+}
+
+function getManualAliasUsageMap(state) {
+  return state?.manualAliasUsage && typeof state.manualAliasUsage === 'object'
+    ? { ...state.manualAliasUsage }
+    : {};
+}
+
+function getEffectiveUsedEmails(state) {
+  const usedEmails = new Set((state.accounts || []).map(account => String(account?.email || '').trim()).filter(Boolean));
+  const manualAliasUsage = getManualAliasUsageMap(state);
+
+  for (const [email, used] of Object.entries(manualAliasUsage)) {
+    const normalizedEmail = String(email || '').trim();
+    if (!normalizedEmail) continue;
+    if (used) usedEmails.add(normalizedEmail);
+    else usedEmails.delete(normalizedEmail);
+  }
+
+  return usedEmails;
+}
+
+async function setIcloudAliasUsedState(payload = {}) {
+  const email = String(payload.email || '').trim();
+  if (!email) {
+    throw new Error('No iCloud alias email was provided.');
+  }
+
+  const state = await getState();
+  const manualAliasUsage = getManualAliasUsageMap(state);
+  manualAliasUsage[email] = Boolean(payload.used);
+  await setState({ manualAliasUsage });
+  await addLog(`iCloud: Marked ${email} as ${payload.used ? 'used' : 'unused'}`, 'ok');
+  broadcastIcloudAliasesChanged({ reason: 'used-updated', email, used: Boolean(payload.used) });
+  return { email, used: Boolean(payload.used) };
 }
 
 function getErrorMessage(error) {
@@ -373,7 +415,7 @@ async function listIcloudAliases() {
     const response = await icloudRequest('GET', `${serviceUrl}/v2/hme/list`);
     const aliases = findIcloudAliasArray(response);
     const state = await getState();
-    const usedEmails = new Set((state.accounts || []).map(account => account.email).filter(Boolean));
+    const usedEmails = getEffectiveUsedEmails(state);
 
     if (!aliases) return [];
 
@@ -431,6 +473,13 @@ async function deleteIcloudAlias(email) {
       }
     }
 
+    const state = await getState();
+    const manualAliasUsage = getManualAliasUsageMap(state);
+    if (alias.email in manualAliasUsage) {
+      delete manualAliasUsage[alias.email];
+      await setState({ manualAliasUsage });
+    }
+
     await addLog(`iCloud: Deleted alias ${alias.email}`, 'ok');
     broadcastIcloudAliasesChanged({ reason: 'deleted', email: alias.email });
     return { email: alias.email };
@@ -470,7 +519,7 @@ async function fetchIcloudHideMyEmail() {
 
     const existingAliasesResponse = await icloudRequest('GET', `${serviceUrl}/v2/hme/list`);
     const state = await getState();
-    const usedEmails = new Set((state.accounts || []).map(account => account.email).filter(Boolean));
+    const usedEmails = getEffectiveUsedEmails(state);
     const existingAliases = (findIcloudAliasArray(existingAliasesResponse) || [])
       .map(alias => normalizeIcloudAliasRecord(alias, usedEmails))
       .filter(Boolean);
@@ -523,6 +572,7 @@ async function resetState() {
     'seenCodes',
     'seenInbucketMailIds',
     'accounts',
+    'manualAliasUsage',
     'tabRegistry',
     'language',
     'vpsUrl',
@@ -538,6 +588,7 @@ async function resetState() {
     seenCodes: prev.seenCodes || [],
     seenInbucketMailIds: prev.seenInbucketMailIds || [],
     accounts: prev.accounts || [],
+    manualAliasUsage: prev.manualAliasUsage && typeof prev.manualAliasUsage === 'object' ? prev.manualAliasUsage : {},
     tabRegistry: prev.tabRegistry || {},
     language: prev.language || 'zh-CN',
     vpsUrl: prev.vpsUrl || '',
@@ -1103,6 +1154,12 @@ async function handleMessage(message, sender) {
       clearStopRequest();
       const aliases = await listIcloudAliases();
       return { ok: true, aliases };
+    }
+
+    case 'SET_ICLOUD_ALIAS_USED_STATE': {
+      clearStopRequest();
+      const result = await setIcloudAliasUsedState(message.payload || {});
+      return { ok: true, ...result };
     }
 
     case 'DELETE_ICLOUD_ALIAS': {
