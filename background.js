@@ -2013,6 +2013,10 @@ async function pollVerificationCodeWithAutoResend(options) {
     }
 
     currentFilterAfter = resendResponse?.resentAt || Date.now();
+    const mailTabId = await getTabId(mail.source);
+    if (mailTabId) {
+      await chrome.tabs.update(mailTabId, { active: true });
+    }
     await addLog(`Step ${step}: Resend triggered. Waiting for a fresh verification email...`, 'info');
   }
 }
