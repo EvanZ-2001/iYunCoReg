@@ -1943,6 +1943,37 @@ function normalizeInbucketOrigin(rawValue) {
   }
 }
 
+function supportsMailLoginPrompt(mail) {
+  return mail && mail.source !== 'inbucket-mail';
+}
+
+function isMailLoginRequiredError(error) {
+  const message = getErrorMessage(error).toLowerCase();
+  return message.includes('mail list did not load')
+    || message.includes('content script on qq-mail did not respond')
+    || message.includes('content script on mail-163 did not respond')
+    || message.includes('content script on gmail-mail did not respond')
+    || message.includes('make sure qq mail inbox is open')
+    || message.includes('make sure inbox is open')
+    || message.includes('make sure gmail inbox or primary tab is open');
+}
+
+async function promptMailLogin(mail, step, error) {
+  if (!supportsMailLoginPrompt(mail)) return;
+
+  await addLog(`Step ${step}: ${mail.label} may require sign-in. Please log in in the opened tab, then return and confirm in the side panel.`, 'warn');
+
+  chrome.runtime.sendMessage({
+    type: 'MAIL_LOGIN_REQUIRED',
+    payload: {
+      step,
+      label: mail.label,
+      loginUrl: mail.url,
+      detail: getErrorMessage(error),
+    },
+  }).catch(() => {});
+}
+
 async function pollVerificationCodeWithAutoResend(options) {
   const {
     step,
@@ -2056,19 +2087,27 @@ async function executeStep4(state) {
     });
   }
 
-  await pollVerificationCodeWithAutoResend({
-    step: 4,
-    mail,
-    pollPayload,
-    successMessage: 'Got verification code',
-    successSelectors: [
-      'input[name="name"]',
-      'input[placeholder*="全名"]',
-      '[role="spinbutton"][data-type="year"]',
-      'input[name="birthday"]',
-      'input[name="age"]',
-    ],
-  });
+  try {
+    await pollVerificationCodeWithAutoResend({
+      step: 4,
+      mail,
+      pollPayload,
+      successMessage: 'Got verification code',
+      successSelectors: [
+        'input[name="name"]',
+        'input[placeholder*="全名"]',
+        '[role="spinbutton"][data-type="year"]',
+        'input[name="birthday"]',
+        'input[name="age"]',
+      ],
+    });
+  } catch (err) {
+    if (isMailLoginRequiredError(err)) {
+      await promptMailLogin(mail, 4, err);
+      throw new Error(`Please sign in to ${mail.label} in the opened tab, then return to the side panel, click Confirm, and retry step 4.`);
+    }
+    throw err;
+  }
 }
 
 // ============================================================
@@ -2215,17 +2254,25 @@ async function executeStep7(state) {
     });
   }
 
-  await pollVerificationCodeWithAutoResend({
-    step: 7,
-    mail,
-    pollPayload,
-    successMessage: 'Got login verification code',
-    successSelectors: [
-      'button[type="submit"][data-dd-action-name="Continue"]',
-      'button[type="submit"]._primary_3rdp0_107',
-      'button[aria-label*="Continue"]',
-    ],
-  });
+  try {
+    await pollVerificationCodeWithAutoResend({
+      step: 7,
+      mail,
+      pollPayload,
+      successMessage: 'Got login verification code',
+      successSelectors: [
+        'button[type="submit"][data-dd-action-name="Continue"]',
+        'button[type="submit"]._primary_3rdp0_107',
+        'button[aria-label*="Continue"]',
+      ],
+    });
+  } catch (err) {
+    if (isMailLoginRequiredError(err)) {
+      await promptMailLogin(mail, 7, err);
+      throw new Error(`Please sign in to ${mail.label} in the opened tab, then return to the side panel, click Confirm, and retry step 7.`);
+    }
+    throw err;
+  }
 }
 
 // ============================================================

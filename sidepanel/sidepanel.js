@@ -55,6 +55,10 @@ const rowInbucketHost = document.getElementById('row-inbucket-host');
 const inputInbucketHost = document.getElementById('input-inbucket-host');
 const rowInbucketMailbox = document.getElementById('row-inbucket-mailbox');
 const inputInbucketMailbox = document.getElementById('input-inbucket-mailbox');
+const mailLoginHelp = document.getElementById('mail-login-help');
+const mailLoginHelpTitle = document.getElementById('mail-login-help-title');
+const mailLoginHelpText = document.getElementById('mail-login-help-text');
+const btnMailLoginDone = document.getElementById('btn-mail-login-done');
 const inputRunCount = document.getElementById('input-run-count');
 const autoHint = document.getElementById('auto-hint');
 let icloudRefreshQueued = false;
@@ -64,6 +68,7 @@ let lastRenderedIcloudAliases = [];
 let icloudSelectedEmails = new Set();
 let icloudSearchTerm = '';
 let icloudFilterMode = 'all';
+let lastMailLoginPrompt = null;
 
 // ============================================================
 // Toast Notifications
@@ -114,6 +119,7 @@ const I18N = {
     placeholderEmail: '使用 Auto 生成 iCloud 别名，或手动粘贴',
     placeholderPassword: '留空则自动生成',
     waiting: '等待中...',
+    btnConfirm: '确定',
     btnAuto: '自动',
     btnStop: '停止',
     btnContinue: '继续',
@@ -195,6 +201,10 @@ const I18N = {
     icloudLoginHelpText: ({ host }) => `我已经为你打开 ${host}。请在那个页面完成登录，然后回到这里点击“我已登录”。`,
     icloudSessionReady: 'iCloud 会话已恢复，别名列表已刷新。',
     icloudStillNotSignedIn: ({ message }) => `看起来还没有登录完成：${message}`,
+    mailLoginRequiredToast: ({ provider }) => `${provider} 需要先登录，我已经为你打开邮箱页。`,
+    mailLoginHelpTitle: ({ provider }) => `${provider} 需要登录`,
+    mailLoginHelpText: ({ provider, host, step }) => `我已经为你打开 ${provider}${host ? `（${host}）` : ''}。请先在那个页面完成登录，然后回到这里点击“确定”，再重新执行第 ${step} 步。`,
+    mailLoginConfirmed: '已关闭邮箱登录提示，请重新执行当前步骤。',
     pleaseEnterEmailFirst: '请先粘贴邮箱地址或点击 Auto',
     skipFailed: ({ message }) => `跳过失败：${message}`,
     stepSkippedToast: ({ step }) => `第 ${step} 步已跳过`,
@@ -247,6 +257,7 @@ const I18N = {
     placeholderEmail: 'Use Auto to generate an iCloud alias, or paste manually',
     placeholderPassword: 'Leave blank to auto-generate',
     waiting: 'Waiting...',
+    btnConfirm: 'OK',
     btnAuto: 'Auto',
     btnStop: 'Stop',
     btnContinue: 'Continue',
@@ -328,6 +339,10 @@ const I18N = {
     icloudLoginHelpText: ({ host }) => `We opened ${host} for you. Please finish sign-in there, then return here and click "I've Signed In".`,
     icloudSessionReady: 'iCloud session is ready. Alias list refreshed.',
     icloudStillNotSignedIn: ({ message }) => `Still not signed in: ${message}`,
+    mailLoginRequiredToast: ({ provider }) => `${provider} sign-in is required. A mail tab has been opened for you.`,
+    mailLoginHelpTitle: ({ provider }) => `${provider} sign-in required`,
+    mailLoginHelpText: ({ provider, host, step }) => `We opened ${provider}${host ? ` (${host})` : ''} for you. Please finish sign-in there, then return here, click "OK", and rerun step ${step}.`,
+    mailLoginConfirmed: 'Mail sign-in reminder dismissed. Please rerun the current step.',
     pleaseEnterEmailFirst: 'Please paste email address or use Auto first',
     skipFailed: ({ message }) => `Skip failed: ${message}`,
     stepSkippedToast: ({ step }) => `Step ${step} skipped`,
@@ -415,6 +430,9 @@ function applyLanguage(language) {
   updateIcloudBulkUI();
   if (!icloudSummary.textContent || icloudSummary.textContent === 'Load your Hide My Email aliases to manage them here.') {
     icloudSummary.textContent = t('icloudSummaryInitial');
+  }
+  if (mailLoginHelp.style.display !== 'none' && lastMailLoginPrompt) {
+    showMailLoginHelp(lastMailLoginPrompt);
   }
 }
 
@@ -843,6 +861,27 @@ function hideIcloudLoginHelp() {
   icloudLoginHelp.style.display = 'none';
 }
 
+function showMailLoginHelp(payload = {}) {
+  lastMailLoginPrompt = payload;
+  const provider = String(payload.label || payload.provider || 'Mail').trim();
+  const loginUrl = String(payload.loginUrl || '').trim();
+  let host = '';
+  try {
+    host = loginUrl ? new URL(loginUrl).host : '';
+  } catch {
+    host = '';
+  }
+  const step = Number(payload.step) || 4;
+  mailLoginHelpTitle.textContent = t('mailLoginHelpTitle', { provider, host, step });
+  mailLoginHelpText.textContent = t('mailLoginHelpText', { provider, host, step });
+  mailLoginHelp.style.display = 'flex';
+}
+
+function hideMailLoginHelp() {
+  mailLoginHelp.style.display = 'none';
+  lastMailLoginPrompt = null;
+}
+
 function renderIcloudAliases(aliases = []) {
   lastRenderedIcloudAliases = Array.isArray(aliases) ? aliases : [];
   pruneIcloudSelection(lastRenderedIcloudAliases);
@@ -1242,6 +1281,11 @@ btnIcloudLoginDone.addEventListener('click', async () => {
   }
 });
 
+btnMailLoginDone.addEventListener('click', async () => {
+  hideMailLoginHelp();
+  showToast(t('mailLoginConfirmed'), 'info', 2500);
+});
+
 btnTogglePassword.addEventListener('click', () => {
   inputPassword.type = inputPassword.type === 'password' ? 'text' : 'password';
   syncPasswordToggleLabel();
@@ -1305,6 +1349,7 @@ btnReset.addEventListener('click', async () => {
     updateButtonStates();
     updateProgressCounter();
     updateIcloudBulkUI([]);
+    hideMailLoginHelp();
   }
 });
 
@@ -1437,6 +1482,7 @@ chrome.runtime.onMessage.addListener((message) => {
       updateIcloudBulkUI([]);
       updateStopButtonState(false);
       updateProgressCounter();
+      hideMailLoginHelp();
       break;
     }
 
@@ -1463,6 +1509,13 @@ chrome.runtime.onMessage.addListener((message) => {
       showToast(loginMessage, 'warn', 5000);
       icloudSummary.textContent = loginMessage;
       showIcloudLoginHelp(message.payload || {});
+      break;
+    }
+
+    case 'MAIL_LOGIN_REQUIRED': {
+      const provider = String(message.payload?.label || message.payload?.provider || 'Mail').trim();
+      showToast(t('mailLoginRequiredToast', { provider }), 'warn', 5000);
+      showMailLoginHelp(message.payload || {});
       break;
     }
 
@@ -1507,6 +1560,7 @@ chrome.runtime.onMessage.addListener((message) => {
           autoContinueBar.style.display = 'none';
           autoContinueBar.dataset.reason = '';
           updateStopButtonState(false);
+          hideMailLoginHelp();
           break;
         case 'stopped':
           btnAutoRun.disabled = false;
@@ -1515,6 +1569,7 @@ chrome.runtime.onMessage.addListener((message) => {
           autoContinueBar.style.display = 'none';
           autoContinueBar.dataset.reason = '';
           updateStopButtonState(false);
+          hideMailLoginHelp();
           break;
       }
       break;
