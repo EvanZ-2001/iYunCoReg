@@ -1,5 +1,7 @@
 # iYunCoReg
 
+[English](./README_EN.md) | [中文](./README.md)
+
 一个面向 `iCloud` 临时邮箱的 Chrome 扩展，用来小量自用全自动 Codex 的 OAuth 注册 / 登录流程。
 
 它的定位很简单：
@@ -27,7 +29,7 @@
 - 自动填写邮箱、密码、姓名、生日 / 年龄
 - 自动轮询验证码并回填
 - 自动处理 OAuth 授权确认页
-- 支持 `QQ Mail`、`163 Mail`、`Inbucket`
+- 支持 `QQ Mail`、`163 Mail`、`Gmail`、`Inbucket`
 - 支持中英文界面切换，默认中文
 - 支持失败后 `Skip`
 - 支持中断后继续
@@ -51,6 +53,7 @@
 
 - `QQ Mail`
 - `163 Mail`
+- `Gmail`
 - `Inbucket`
 
 ## 当前测试范围与限制
@@ -140,7 +143,15 @@ http(s)://<your-host>/management.html#/oauth
 
 - `163 Mail`
 - `QQ Mail`
+- `Gmail`
 - `Inbucket`
+
+补充说明：
+
+- `Gmail` 建议先打开 `Inbox / 收件箱`，优先停留在 `Primary / 主要` 标签页
+- `QQ Mail`、`163 Mail`、`Gmail` 如果第一次打开时还没登录，插件会弹出提示
+- 登录完成后，回到侧边栏点击 `确定`
+- 单步模式下会自动重试当前步骤，`Auto` 模式下会自动恢复流程
 
 ### `Email`
 
@@ -211,23 +222,38 @@ http(s)://<your-host>/management.html#/oauth
 - 打开的登录页是否已经完成登录
 - 登录完成后是否点击了侧边栏里的 `我已登录`
 
-### 2. Step 8 最容易失败吗
+### 2. 第一次打开验证码邮箱时报错 / 看不到邮件列表
+
+常见于：
+
+- `QQ Mail` 未登录
+- `163 Mail` 未登录
+- `Gmail` 未登录，或者没有停留在 `Inbox / 主要`
+
+处理方式：
+
+- 先在新打开的邮箱页面完成登录
+- 如果是 `Gmail`，尽量保持在 `收件箱 / 主要`
+- 回到侧边栏点击 `确定`
+- 单步模式下会自动重试当前步骤，`Auto` 模式下会自动恢复流程
+
+### 3. Step 8 最容易失败吗
 
 是的。
 
 这是最依赖页面结构的一步，也是最容易因为页面变动失效的一步。
 
-### 3. 出现 `debugger attach failed`
+### 4. 出现 `debugger attach failed`
 
 通常说明目标标签页已经被 DevTools 占用。
 
 先关闭那个页面上的 DevTools，再重试。
 
-### 4. 为什么邮箱已经用过，但没有立刻删除
+### 5. 为什么邮箱已经用过，但没有立刻删除
 
 因为删除是可选行为，并且只会在 Step 9 成功后触发。
 
-### 5. 为什么 alias 没有被自动删除
+### 6. 为什么 alias 没有被自动删除
 
 常见原因：
 
@@ -247,4 +273,7 @@ http(s)://<your-host>/management.html#/oauth
 This project is licensed under the MIT License.
 
 It includes code derived from:
+
 - [StepFlow-Duck](https://github.com/whwh1233/StepFlow-Duck)
+
+[English README](./README_EN.md)
