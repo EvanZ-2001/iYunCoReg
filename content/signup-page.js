@@ -294,7 +294,7 @@ async function resendVerificationCode(step, payload = {}) {
   await ensureAuthSurfaceReady(step);
   log(`Step ${step}: Trying to resend verification code...`);
 
-  const resendBtn = await findVerificationContinueButton(payload.timeout || 10000);
+  const resendBtn = await findVerificationResendButton(payload.timeout || 10000);
   await waitForButtonEnabled(resendBtn);
 
   await humanPause(400, 900);
@@ -306,14 +306,11 @@ async function resendVerificationCode(step, payload = {}) {
   return { resentAt };
 }
 
-async function findVerificationContinueButton(timeout = 10000) {
+async function findVerificationResendButton(timeout = 10000) {
   const selector = [
     'button[type="submit"][name="intent"][value="resend"]',
     'button[name="intent"][value="resend"]',
     'button[type="submit"][value="resend"]',
-    'button[type="submit"][name="intent"][value="validate"]',
-    'button[type="submit"][data-dd-action-name="Continue"]',
-    'button[type="submit"]._primary_3rdp0_107',
   ].join(', ');
 
   try {
