@@ -57,6 +57,7 @@ const DEFAULT_STATE = {
   mailResendRounds: 3,
   inbucketHost: '',
   inbucketMailbox: '',
+  lastSignupVerificationCode: '',
 };
 
 async function getState() {
@@ -2164,9 +2165,11 @@ async function pollVerificationCodeWithAutoResend(options) {
     successSelectors,
     successMessage,
     resendRounds = 3,
+    beforeResend = null,
   } = options;
 
   let currentFilterAfter = pollPayload.filterAfterTimestamp || 0;
+  const verificationResultTimeoutMs = 60000;
 
   for (let round = 1; round <= resendRounds; round++) {
     const currentPayload = {
@@ -2182,6 +2185,16 @@ async function pollVerificationCodeWithAutoResend(options) {
     });
 
     if (result?.code) {
+      const latestState = await getState();
+      if (step === 7 && latestState.lastSignupVerificationCode && result.code === latestState.lastSignupVerificationCode) {
+        currentFilterAfter = Math.max(currentFilterAfter, result.emailTimestamp || Date.now());
+        await addLog(
+          `Step 7: Ignoring code ${result.code} because it matches the signup verification code from step 4. Waiting for a fresh login code...`,
+          'warn'
+        );
+        continue;
+      }
+
       await setState({ lastEmailTimestamp: result.emailTimestamp || Date.now() });
       await addLog(`Step ${step}: ${successMessage}: ${result.code}`);
 
@@ -2197,10 +2210,32 @@ async function pollVerificationCodeWithAutoResend(options) {
         source: 'background',
         payload: { code: result.code },
       });
-      await waitForSignupSurface({
+      const submissionResult = await waitForSignupSurface({
         step,
         selectors: successSelectors,
-      });
+        errorPatterns: [
+          /代码不正确/i,
+          /验证码不正确/i,
+          /code is incorrect/i,
+          /incorrect code/i,
+          /invalid code/i,
+        ],
+      }, verificationResultTimeoutMs);
+
+      if (submissionResult?.invalidCode) {
+        currentFilterAfter = Date.now();
+        await addLog(
+          `Step ${step}: Verification code was rejected by the page (${submissionResult.errorMessage || 'invalid code'}). Waiting for a fresh code...`,
+          'warn'
+        );
+        round -= 1;
+        continue;
+      }
+
+      if (step === 4) {
+        await setState({ lastSignupVerificationCode: result.code });
+      }
+
       return;
     }
 
@@ -2215,6 +2250,10 @@ async function pollVerificationCodeWithAutoResend(options) {
 
     if (round >= resendRounds) {
       throw new Error(pollError);
+    }
+
+    if (typeof beforeResend === 'function') {
+      await beforeResend({ step, round, resendRounds });
     }
 
     await addLog(`Step ${step}: No verification email received on round ${round}/${resendRounds}. Trying to resend code...`, 'warn');
@@ -2543,6 +2582,9 @@ async function executeStep7(state) {
         'button[aria-label*="Continue"]',
       ],
       resendRounds: mailPollConfig.resendRounds,
+      beforeResend: async () => {
+        await refreshOAuthIfTimedOutBeforeStep7Resend();
+      },
     });
   } catch (err) {
     if (isMailLoginRequiredError(err)) {
