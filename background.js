@@ -52,6 +52,7 @@ const DEFAULT_STATE = {
   icloudHostPreference: 'auto',
   preferredIcloudHost: '',
   mailProvider: '163', // 'qq', '163', 'gmail', or 'inbucket'
+  qqMailDomain: 'standard', // 'standard' or 'enterprise'
   mailPollMaxAttempts: 20,
   mailPollIntervalMs: 3000,
   mailResendRounds: 3,
@@ -820,6 +821,7 @@ async function resetState() {
       'icloudHostPreference',
       'preferredIcloudHost',
       'mailProvider',
+      'qqMailDomain',
       'mailPollMaxAttempts',
       'mailPollIntervalMs',
       'mailResendRounds',
@@ -849,6 +851,7 @@ async function resetState() {
     icloudHostPreference: prev.icloudHostPreference || 'auto',
     preferredIcloudHost: prev.preferredIcloudHost || '',
     mailProvider: prev.mailProvider || '163',
+    qqMailDomain: prev.qqMailDomain || 'standard',
     mailPollMaxAttempts: Number(prev.mailPollMaxAttempts) || 20,
     mailPollIntervalMs: Number(prev.mailPollIntervalMs) || 3000,
     mailResendRounds: Number(prev.mailResendRounds) || 3,
@@ -1459,6 +1462,7 @@ async function handleMessage(message, sender) {
       if (message.payload.customPassword !== undefined) updates.customPassword = message.payload.customPassword;
       if (message.payload.icloudHostPreference !== undefined) updates.icloudHostPreference = message.payload.icloudHostPreference;
       if (message.payload.mailProvider !== undefined) updates.mailProvider = message.payload.mailProvider;
+      if (message.payload.qqMailDomain !== undefined) updates.qqMailDomain = message.payload.qqMailDomain === 'enterprise' ? 'enterprise' : 'standard';
       if (message.payload.mailPollMaxAttempts !== undefined) updates.mailPollMaxAttempts = Number(message.payload.mailPollMaxAttempts) || DEFAULT_STATE.mailPollMaxAttempts;
       if (message.payload.mailPollIntervalMs !== undefined) updates.mailPollIntervalMs = Number(message.payload.mailPollIntervalMs) || DEFAULT_STATE.mailPollIntervalMs;
       if (message.payload.mailResendRounds !== undefined) updates.mailResendRounds = Number(message.payload.mailResendRounds) || DEFAULT_STATE.mailResendRounds;
@@ -2215,6 +2219,10 @@ function getMailConfig(state) {
       inject: ['content/utils.js', 'content/inbucket-mail.js'],
       injectSource: 'inbucket-mail',
     };
+  }
+  const qqMailDomain = state?.qqMailDomain === 'enterprise' ? 'enterprise' : 'standard';
+  if (qqMailDomain === 'enterprise') {
+    return { source: 'qq-mail', url: 'https://exmail.qq.com/', label: 'QQ Exmail' };
   }
   return { source: 'qq-mail', url: 'https://wx.mail.qq.com/', label: 'QQ Mail' };
 }
