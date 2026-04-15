@@ -50,6 +50,153 @@ function getCurrentMailIds() {
   return ids;
 }
 
+function normalizeText(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function readAttr(el, name) {
+  try {
+    return el?.getAttribute?.(name) || '';
+  } catch {
+    return '';
+  }
+}
+
+function getMailItemMeta(item) {
+  const sender = normalizeText(item.querySelector('.cmp-account-nick')?.textContent || '');
+  const subject = normalizeText(item.querySelector('.mail-subject')?.textContent || '');
+  const digest = normalizeText(item.querySelector('.mail-digest')?.textContent || '');
+  const itemText = normalizeText(item.innerText || item.textContent || '');
+  const ariaLabel = normalizeText(readAttr(item, 'aria-label'));
+  const titleTexts = [];
+
+  const annotatedNodes = item.querySelectorAll('[title], [aria-label]');
+  for (const node of annotatedNodes) {
+    const title = normalizeText(readAttr(node, 'title'));
+    const label = normalizeText(readAttr(node, 'aria-label'));
+    if (title) titleTexts.push(title);
+    if (label) titleTexts.push(label);
+    if (titleTexts.length >= 20) break;
+  }
+
+  const combinedText = normalizeText([
+    sender,
+    subject,
+    digest,
+    itemText,
+    ariaLabel,
+    titleTexts.join(' '),
+  ].join(' '));
+
+  return {
+    sender,
+    subject,
+    digest,
+    combinedText,
+  };
+}
+
+function scoreOpenedMailText(text, meta = {}) {
+  const normalized = normalizeText(text);
+  if (!normalized) return -1;
+
+  const lower = normalized.toLowerCase();
+  let score = 0;
+
+  if (extractVerificationCode(normalized)) score += 20;
+  if (/openai|chatgpt|verification|verify|login code|one-time|otp/i.test(normalized)) score += 12;
+  if (/验证码|代码|登录代码|临时|一次性/.test(normalized)) score += 12;
+
+  const sender = normalizeText(meta.sender).toLowerCase();
+  if (sender && lower.includes(sender)) score += 6;
+
+  const subjectTokens = normalizeText(meta.subject)
+    .toLowerCase()
+    .split(/[^a-z0-9\u4e00-\u9fff]+/i)
+    .filter(token => token.length >= 2);
+  for (const token of subjectTokens.slice(0, 8)) {
+    if (lower.includes(token)) score += 2;
+  }
+
+  return score;
+}
+
+function collectOpenedMailTextCandidates(meta = {}) {
+  const candidates = [];
+  const seen = new Set();
+
+  function pushCandidate(text, source) {
+    const normalized = normalizeText(text);
+    if (!normalized || normalized.length < 6) return;
+    const key = `${source}:${normalized.slice(0, 400)}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    candidates.push({
+      source,
+      text: normalized,
+      score: scoreOpenedMailText(normalized, meta),
+    });
+  }
+
+  document.querySelectorAll('.mail-detail-content .qmbox').forEach((el, index) => {
+    pushCandidate(el.innerText || el.textContent || '', `qmbox-${index}`);
+  });
+
+  const detailSelectors = [
+    '.mail-detail-content .qmbox',
+    '.mail-detail-content',
+    '[data-a11y="region"] .qmbox',
+    '[data-a11y="region"]',
+    '[role="document"]',
+  ];
+
+  document.querySelectorAll(detailSelectors.join(', ')).forEach((el, index) => {
+    pushCandidate(el.innerText || el.textContent || '', `detail-${index}`);
+  });
+
+  document.querySelectorAll('iframe').forEach((frame, index) => {
+    try {
+      const frameDoc = frame.contentDocument;
+      const frameBody = frameDoc?.body;
+      if (!frameBody) return;
+      pushCandidate(frameBody.innerText || frameBody.textContent || '', `iframe-${index}`);
+    } catch {}
+  });
+
+  return candidates.sort((a, b) => (b.score - a.score) || (b.text.length - a.text.length));
+}
+
+async function extractCodeFromOpenedMail(item, step, meta = {}) {
+  const clickTarget = item.querySelector('.mail-subject') || item;
+  simulateClick(clickTarget);
+  await sleep(500);
+
+  for (let attempt = 1; attempt <= 8; attempt++) {
+    throwIfStopped();
+    const candidates = collectOpenedMailTextCandidates(meta);
+    for (const candidate of candidates) {
+      const code = extractVerificationCode(candidate.text);
+      if (code) {
+        log(`Step ${step}: Code found from opened QQ mail body (${candidate.source})`, 'ok');
+        return code;
+      }
+    }
+    await sleep(300);
+  }
+
+  return null;
+}
+
+async function extractCodeFromMailItem(item, step, meta = {}) {
+  const inlineCode = extractVerificationCode(meta.combinedText || '');
+  if (inlineCode) {
+    return inlineCode;
+  }
+
+  log(`Step ${step}: QQ item matched filters but list text had no code. Opening email body...`, 'info');
+  return await extractCodeFromOpenedMail(item, step, meta);
+}
+
 function findVisibleDeleteButton() {
   const buttons = document.querySelectorAll('.ui-toolbar-ellipsis-btns .xmail-ui-btn');
   for (const button of buttons) {
@@ -152,15 +299,13 @@ async function handlePollEmail(step, payload) {
 
       if (!useFallback && existingMailIds.has(mailId)) continue;
 
-      const sender = (item.querySelector('.cmp-account-nick')?.textContent || '').toLowerCase();
-      const subject = (item.querySelector('.mail-subject')?.textContent || '').toLowerCase();
-      const digest = item.querySelector('.mail-digest')?.textContent || '';
-
-      const senderMatch = senderFilters.some(f => sender.includes(f.toLowerCase()));
-      const subjectMatch = subjectFilters.some(f => subject.includes(f.toLowerCase()));
+      const meta = getMailItemMeta(item);
+      const combinedLower = meta.combinedText.toLowerCase();
+      const senderMatch = senderFilters.some(f => combinedLower.includes(String(f || '').toLowerCase()));
+      const subjectMatch = subjectFilters.some(f => combinedLower.includes(String(f || '').toLowerCase()));
 
       if (senderMatch || subjectMatch) {
-        const code = extractVerificationCode(subject + ' ' + digest);
+        const code = await extractCodeFromMailItem(item, step, meta);
         if (code) {
           const source = useFallback && existingMailIds.has(mailId) ? 'fallback-first-match' : 'new';
           try {
@@ -169,7 +314,7 @@ async function handlePollEmail(step, payload) {
           } catch (deleteErr) {
             log(`Step ${step}: QQ Mail delete failed for ${mailId}: ${deleteErr.message}`, 'warn');
           }
-          log(`Step ${step}: Code found: ${code} (${source}, subject: ${subject.slice(0, 40)})`, 'ok');
+          log(`Step ${step}: Code found: ${code} (${source}, subject: ${meta.subject.slice(0, 40)})`, 'ok');
           return { ok: true, code, emailTimestamp: Date.now(), mailId };
         }
       }
