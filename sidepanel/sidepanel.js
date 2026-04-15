@@ -527,7 +527,9 @@ function normalizeAuthPanelUrl(value) {
 
   const path = parsed.pathname.replace(/\/+$/, '');
   const hash = parsed.hash || '';
-  const isSub2api = parsed.protocol === 'https:' && path === '/admin/accounts' && !hash;
+  const isSub2api = (parsed.protocol === 'http:' || parsed.protocol === 'https:')
+    && path === '/admin/accounts'
+    && !hash;
   const isCpa = (parsed.protocol === 'http:' || parsed.protocol === 'https:')
     && path === '/management.html'
     && hash === '#/oauth';
