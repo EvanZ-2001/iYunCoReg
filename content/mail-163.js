@@ -82,6 +82,154 @@ function getCurrentMailIds() {
   return ids;
 }
 
+function normalizeText(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function readAttr(el, name) {
+  try {
+    return el?.getAttribute?.(name) || '';
+  } catch {
+    return '';
+  }
+}
+
+function getMailItemMeta(item) {
+  const sender = normalizeText(item.querySelector('.nui-user')?.textContent || '');
+  const subject = normalizeText(item.querySelector('span.da0')?.textContent || '');
+  const itemText = normalizeText(item.innerText || item.textContent || '');
+  const ariaLabel = normalizeText(readAttr(item, 'aria-label'));
+  const titleTexts = [];
+
+  const annotatedNodes = item.querySelectorAll('[title], [aria-label]');
+  for (const node of annotatedNodes) {
+    const title = normalizeText(readAttr(node, 'title'));
+    const label = normalizeText(readAttr(node, 'aria-label'));
+    if (title) titleTexts.push(title);
+    if (label) titleTexts.push(label);
+    if (titleTexts.length >= 20) break;
+  }
+
+  const combinedText = normalizeText([
+    sender,
+    subject,
+    itemText,
+    ariaLabel,
+    titleTexts.join(' '),
+  ].join(' '));
+
+  return {
+    sender,
+    subject,
+    combinedText,
+  };
+}
+
+function scoreOpenedMailText(text, meta = {}) {
+  const normalized = normalizeText(text);
+  if (!normalized) return -1;
+
+  const lower = normalized.toLowerCase();
+  let score = 0;
+
+  if (extractVerificationCode(normalized)) score += 20;
+  if (/openai|chatgpt|verification|verify|login code|one-time|otp/i.test(normalized)) score += 12;
+  if (/验证码|代码|登录代码|临时|一次性/.test(normalized)) score += 12;
+
+  const sender = normalizeText(meta.sender).toLowerCase();
+  if (sender && lower.includes(sender)) score += 6;
+
+  const subjectTokens = normalizeText(meta.subject)
+    .toLowerCase()
+    .split(/[^a-z0-9\u4e00-\u9fff]+/i)
+    .filter(token => token.length >= 2);
+  for (const token of subjectTokens.slice(0, 8)) {
+    if (lower.includes(token)) score += 2;
+  }
+
+  return score;
+}
+
+function collectOpenedMailTextCandidates(meta = {}) {
+  const candidates = [];
+  const seen = new Set();
+
+  function pushCandidate(text, source) {
+    const normalized = normalizeText(text);
+    if (!normalized || normalized.length < 6) return;
+    const key = `${source}:${normalized.slice(0, 400)}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    candidates.push({
+      source,
+      text: normalized,
+      score: scoreOpenedMailText(normalized, meta),
+    });
+  }
+
+  document.querySelectorAll('div[data-nds-name="main"]').forEach((el, index) => {
+    pushCandidate(el.innerText || el.textContent || '', `nds-main-${index}`);
+  });
+
+  const detailSelectors = [
+    'div[data-nds-name="main"]',
+    '[class*="mailview" i]',
+    '[class*="mail-view" i]',
+    '[class*="mailcontent" i]',
+    '[class*="mail-content" i]',
+    '[class*="mailread" i]',
+    '[class*="mail-read" i]',
+    '[class*="reader" i]',
+    '[role="document"]',
+  ];
+
+  document.querySelectorAll(detailSelectors.join(', ')).forEach((el, index) => {
+    pushCandidate(el.innerText || el.textContent || '', `detail-${index}`);
+  });
+
+  document.querySelectorAll('iframe').forEach((frame, index) => {
+    try {
+      const frameDoc = frame.contentDocument;
+      const frameBody = frameDoc?.body;
+      if (!frameBody) return;
+      pushCandidate(frameBody.innerText || frameBody.textContent || '', `iframe-${index}`);
+    } catch {}
+  });
+
+  return candidates.sort((a, b) => (b.score - a.score) || (b.text.length - a.text.length));
+}
+
+async function extractCodeFromOpenedMail(item, step, meta = {}) {
+  const clickTarget = item.querySelector('span.da0') || item;
+  simulateClick(clickTarget);
+  await sleep(500);
+
+  for (let attempt = 1; attempt <= 8; attempt++) {
+    throwIfStopped();
+    const candidates = collectOpenedMailTextCandidates(meta);
+    for (const candidate of candidates) {
+      const code = extractVerificationCode(candidate.text);
+      if (code) {
+        log(`Step ${step}: Code found from opened 163 mail body (${candidate.source})`, 'ok');
+        return code;
+      }
+    }
+    await sleep(300);
+  }
+
+  return null;
+}
+
+async function extractCodeFromMailItem(item, step, meta = {}) {
+  const inlineCode = extractVerificationCode(meta.combinedText || '');
+  if (inlineCode) {
+    return inlineCode;
+  }
+
+  log(`Step ${step}: 163 item matched filters but list text had no code. Opening email body...`, 'info');
+  return await extractCodeFromOpenedMail(item, step, meta);
+}
+
 // ============================================================
 // Email Polling
 // ============================================================
@@ -94,7 +242,7 @@ async function handlePollEmail(step, payload) {
   // Click inbox in sidebar to ensure we're in inbox view
   log(`Step ${step}: Waiting for sidebar...`);
   try {
-    const inboxLink = await waitForElement('.nui-tree-item-text[title="收件箱"]', 5000);
+    const inboxLink = await waitForElement('.nui-tree-item-text[title="收件箱"], .nui-tree-item-text[title="Inbox"]', 5000);
     inboxLink.click();
     log(`Step ${step}: Clicked inbox`);
   } catch {
@@ -144,24 +292,18 @@ async function handlePollEmail(step, payload) {
 
       if (!useFallback && existingMailIds.has(id)) continue;
 
-      const senderEl = item.querySelector('.nui-user');
-      const sender = senderEl ? senderEl.textContent.toLowerCase() : '';
-
-      const subjectEl = item.querySelector('span.da0');
-      const subject = subjectEl ? subjectEl.textContent : '';
-
-      const ariaLabel = (item.getAttribute('aria-label') || '').toLowerCase();
-
-      const senderMatch = senderFilters.some(f => sender.includes(f.toLowerCase()) || ariaLabel.includes(f.toLowerCase()));
-      const subjectMatch = subjectFilters.some(f => subject.toLowerCase().includes(f.toLowerCase()) || ariaLabel.includes(f.toLowerCase()));
+      const meta = getMailItemMeta(item);
+      const combinedLower = meta.combinedText.toLowerCase();
+      const senderMatch = senderFilters.some(f => combinedLower.includes(String(f || '').toLowerCase()));
+      const subjectMatch = subjectFilters.some(f => combinedLower.includes(String(f || '').toLowerCase()));
 
       if (senderMatch || subjectMatch) {
-        const code = extractVerificationCode(subject + ' ' + ariaLabel);
+        const code = await extractCodeFromMailItem(item, step, meta);
         if (code && !seenCodes.has(code)) {
           seenCodes.add(code);
           persistSeenCodes();
           const source = useFallback && existingMailIds.has(id) ? 'fallback' : 'new';
-          log(`Step ${step}: Code found: ${code} (${source}, subject: ${subject.slice(0, 40)})`, 'ok');
+          log(`Step ${step}: Code found: ${code} (${source}, subject: ${meta.subject.slice(0, 40)})`, 'ok');
 
           // Delete this email via right-click menu, WAIT for it to finish before returning
           await deleteEmail(item, step);

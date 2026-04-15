@@ -25,6 +25,7 @@ const btnIcloudRefresh = document.getElementById('btn-icloud-refresh');
 const btnIcloudDeleteUsed = document.getElementById('btn-icloud-delete-used');
 const checkboxAutoDeleteIcloud = document.getElementById('checkbox-auto-delete-icloud');
 const checkboxForceRefreshOAuthBeforeStep6 = document.getElementById('checkbox-force-refresh-oauth-before-step6');
+const checkboxDebugFreeStepExecution = document.getElementById('checkbox-debug-free-step-execution');
 const inputIcloudSearch = document.getElementById('input-icloud-search');
 const selectIcloudFilter = document.getElementById('select-icloud-filter');
 const checkboxIcloudSelectAll = document.getElementById('checkbox-icloud-select-all');
@@ -108,6 +109,7 @@ const I18N = {
     labelCleanup: '清理',
     labelIcloudHost: 'iCloud',
     labelStep6: '第 6 步',
+    labelDebug: '调试',
     labelVerify: '验证',
     labelQqDomain: 'QQ 域名',
     labelMailWait: '轮询',
@@ -124,6 +126,7 @@ const I18N = {
     icloudHostCn: 'iCloud.com.cn',
     cleanupAutoDelete: '成功使用后自动删除 iCloud 别名',
     step6ForceRefresh: '每次执行第 6 步前强制重新获取 OAuth',
+    debugFreeStepExecution: '允许自由执行任意 Step',
     mailProvider163: '163 邮箱 (mail.163.com)',
     mailProviderQq: 'QQ 邮箱',
     qqDomainStandard: '普通 (wx.mail.qq.com)',
@@ -265,6 +268,7 @@ const I18N = {
     labelCleanup: 'Cleanup',
     labelIcloudHost: 'iCloud',
     labelStep6: 'Step 6',
+    labelDebug: 'Debug',
     labelVerify: 'Verify',
     labelQqDomain: 'QQ Domain',
     labelMailWait: 'Poll',
@@ -281,6 +285,7 @@ const I18N = {
     icloudHostCn: 'iCloud.com.cn',
     cleanupAutoDelete: 'Delete iCloud alias after successful use',
     step6ForceRefresh: 'Force refresh OAuth before every Step 6 run',
+    debugFreeStepExecution: 'Allow free execution of any step',
     mailProvider163: '163 Mail (mail.163.com)',
     mailProviderQq: 'QQ Mail',
     qqDomainStandard: 'Standard (wx.mail.qq.com)',
@@ -622,6 +627,7 @@ async function restoreState() {
     }
     checkboxAutoDeleteIcloud.checked = Boolean(state.autoDeleteUsedIcloudAlias);
     checkboxForceRefreshOAuthBeforeStep6.checked = Boolean(state.forceRefreshOAuthBeforeStep6);
+    checkboxDebugFreeStepExecution.checked = Boolean(state.debugFreeStepExecution);
     if (state.language) {
       selectLanguage.value = state.language;
     }
@@ -722,6 +728,7 @@ function updateProgressCounter() {
 }
 
 function updateButtonStates() {
+  const debugFreeStepExecution = Boolean(checkboxDebugFreeStepExecution?.checked);
   const statuses = {};
   document.querySelectorAll('.step-row').forEach(row => {
     const step = Number(row.dataset.step);
@@ -745,6 +752,8 @@ function updateButtonStates() {
     if (anyRunning) {
       btn.disabled = true;
       if (skipBtn) skipBtn.disabled = true;
+    } else if (debugFreeStepExecution) {
+      btn.disabled = false;
     } else if (step === 1) {
       btn.disabled = false;
     } else {
@@ -1559,6 +1568,15 @@ checkboxForceRefreshOAuthBeforeStep6.addEventListener('change', async () => {
     type: 'SAVE_SETTING',
     source: 'sidepanel',
     payload: { forceRefreshOAuthBeforeStep6: checkboxForceRefreshOAuthBeforeStep6.checked },
+  });
+});
+
+checkboxDebugFreeStepExecution.addEventListener('change', async () => {
+  updateButtonStates();
+  await chrome.runtime.sendMessage({
+    type: 'SAVE_SETTING',
+    source: 'sidepanel',
+    payload: { debugFreeStepExecution: checkboxDebugFreeStepExecution.checked },
   });
 });
 

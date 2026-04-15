@@ -37,6 +37,7 @@ const DEFAULT_STATE = {
   oauthUrl: null,
   autoDeleteUsedIcloudAlias: false,
   forceRefreshOAuthBeforeStep6: false,
+  debugFreeStepExecution: false,
   email: null,
   password: null,
   signupHasPassword: null,
@@ -1460,6 +1461,7 @@ async function handleMessage(message, sender) {
       if (message.payload.vpsUrl !== undefined) updates.vpsUrl = message.payload.vpsUrl;
       if (message.payload.autoDeleteUsedIcloudAlias !== undefined) updates.autoDeleteUsedIcloudAlias = Boolean(message.payload.autoDeleteUsedIcloudAlias);
       if (message.payload.forceRefreshOAuthBeforeStep6 !== undefined) updates.forceRefreshOAuthBeforeStep6 = Boolean(message.payload.forceRefreshOAuthBeforeStep6);
+      if (message.payload.debugFreeStepExecution !== undefined) updates.debugFreeStepExecution = Boolean(message.payload.debugFreeStepExecution);
       if (message.payload.customPassword !== undefined) updates.customPassword = message.payload.customPassword;
       if (message.payload.icloudHostPreference !== undefined) updates.icloudHostPreference = message.payload.icloudHostPreference;
       if (message.payload.mailProvider !== undefined) updates.mailProvider = message.payload.mailProvider;
