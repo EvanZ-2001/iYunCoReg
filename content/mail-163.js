@@ -171,6 +171,19 @@ function collectOpenedMailTextCandidates(meta = {}) {
     pushCandidate(el.innerText || el.textContent || '', `nds-main-${index}`);
   });
 
+  document.querySelectorAll([
+    'div[data-nds-name="main"] .main',
+    'div[data-nds-name="main"] p',
+    'div[data-nds-name="main"] h1',
+    'div[data-nds-name="main"] h2',
+    'div[data-nds-name="main"] h3',
+    'div[data-nds-name="main"] td',
+    'div[data-nds-name="main"] div',
+    'div[data-nds-name="main"] span',
+  ].join(', ')).forEach((el, index) => {
+    pushCandidate(el.innerText || el.textContent || '', `nds-block-${index}`);
+  });
+
   const detailSelectors = [
     'div[data-nds-name="main"]',
     '[class*="mailview" i]',
@@ -204,9 +217,13 @@ async function extractCodeFromOpenedMail(item, step, meta = {}) {
   simulateClick(clickTarget);
   await sleep(500);
 
-  for (let attempt = 1; attempt <= 8; attempt++) {
+  let bestCandidate = null;
+  for (let attempt = 1; attempt <= 16; attempt++) {
     throwIfStopped();
     const candidates = collectOpenedMailTextCandidates(meta);
+    if (!bestCandidate && candidates.length > 0) {
+      bestCandidate = candidates[0];
+    }
     for (const candidate of candidates) {
       const code = extractVerificationCode(candidate.text);
       if (code) {
@@ -215,6 +232,13 @@ async function extractCodeFromOpenedMail(item, step, meta = {}) {
       }
     }
     await sleep(300);
+  }
+
+  if (bestCandidate?.text) {
+    log(
+      `Step ${step}: Opened 163 mail body was detected but no code was parsed. Sample (${bestCandidate.source}): ${bestCandidate.text.slice(0, 180)}`,
+      'warn'
+    );
   }
 
   return null;
@@ -426,8 +450,18 @@ async function refreshInbox() {
 // ============================================================
 
 function extractVerificationCode(text) {
+  const matchCnExtended = text.match(
+    /(?:输入此(?:临时)?验证码(?:以继续)?|输入此(?:临时)?代码(?:以继续)?|临时验证码|登录代码|验证码|代码为)[^\d]{0,40}(\d{6})/
+  );
+  if (matchCnExtended) return matchCnExtended[1];
+
   const matchCn = text.match(/(?:代码为|验证码[^0-9]*?)[\s：:]*(\d{6})/);
   if (matchCn) return matchCn[1];
+
+  const matchEnExtended = text.match(
+    /(?:enter this (?:temporary )?(?:verification )?code(?: to continue)?|if that was you,\s*enter this code)[^\d]{0,40}(\d{6})/i
+  );
+  if (matchEnExtended) return matchEnExtended[1];
 
   const matchEn = text.match(/code[:\s]+is[:\s]+(\d{6})|code[:\s]+(\d{6})/i);
   if (matchEn) return matchEn[1] || matchEn[2];
